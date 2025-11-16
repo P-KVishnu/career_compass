@@ -8,39 +8,70 @@ from flask_cors import CORS
 from rapidfuzz import process, fuzz  # 🧠 Smart matching library
 import pickle
 import numpy as np
+import traceback
 
-# ------------------ LOAD ML MODEL ------------------
-with open("career_model.pkl", "rb") as f:
-    career_model = pickle.load(f)
-
-with open("label_encoder.pkl", "rb") as f:
-    label_encoder = pickle.load(f)
-
-# ------------------ ENV & API CONFIG ------------------
-load_dotenv()  # Load .env file
+# ------------------ ENV (load early) ------------------
+load_dotenv()  # Load .env file (local dev)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-JOOBLE_API_KEY = "7dfddc19-8370-4ae7-8794-fb813481980e"
-
-if not OPENROUTER_API_KEY:
-    print("⚠️ ERROR: OPENROUTER_API_KEY missing — add it to .env from https://openrouter.ai/settings/keys")
+JOOBLE_API_KEY = os.getenv("JOOBLE_API_KEY", "7dfddc19-8370-4ae7-8794-fb813481980e")
 
 # ------------------ FLASK APP SETUP ------------------
 app = Flask(__name__)
+
+# Allow CORS from any origin (safe for dev). For stricter production, replace "*" with your frontend origin:
+# e.g. CORS(app, resources={r"/*": {"origins": "https://career-compass-1-wrgl.onrender.com"}})
 CORS(app, resources={r"/*": {"origins": "*"}})
 
+# ------------------ LOAD ML MODELS (robust) ------------------
+def try_load_pickle(path, desc="model"):
+    try:
+        with open(path, "rb") as f:
+            obj = pickle.load(f)
+        print(f"✅ Loaded {desc} from {path}")
+        return obj
+    except FileNotFoundError:
+        print(f"⚠️ {desc} NOT FOUND at {path} — continuing without it.")
+        return None
+    except Exception:
+        print(f"❌ Error loading {desc} from {path}:")
+        traceback.print_exc()
+        return None
+
+career_model = try_load_pickle("career_model.pkl", "career_model")
+label_encoder = try_load_pickle("label_encoder.pkl", "label_encoder")
+# optional other pickles (vectorizer/encoders) - load if present
+vectorizer = try_load_pickle("vectorizer.pkl", "vectorizer")
+encoders = try_load_pickle("encoders.pkl", "encoders")
 
 # ------------------ DATA LOADING ------------------
 print("📂 Current working directory:", os.getcwd())
 
-career_data = pd.read_csv("career_data.csv")
-print("✅ Loaded dataset columns:", list(career_data.columns))
-print("✅ Total rows:", len(career_data))
+# Load dataset files robustly (fail loudly in logs but don't crash the service)
+try:
+    career_data = pd.read_csv("career_data.csv")
+    print("✅ Loaded dataset columns:", list(career_data.columns))
+    print("✅ Total rows:", len(career_data))
+except Exception as e:
+    print("❌ Failed to load career_data.csv:", e)
+    career_data = pd.DataFrame()
+    # continue; some endpoints rely on mentors and roadmaps instead
 
-with open("roadmaps.json", "r", encoding="utf-8") as f:
-    roadmaps = {k.strip().lower(): v for k, v in json.load(f).items()}
+try:
+    mentors_df = pd.read_csv("mentors.csv")
+except Exception as e:
+    print("❌ Failed to load mentors.csv:", e)
+    mentors_df = pd.DataFrame(columns=["name", "job_title", "specialization", "experience", "contact"])
 
-mentors_df = pd.read_csv("mentors.csv")
+try:
+    with open("roadmaps.json", "r", encoding="utf-8") as f:
+        roadmaps = {k.strip().lower(): v for k, v in json.load(f).items()}
+except Exception as e:
+    print("❌ Failed to load roadmaps.json:", e)
+    roadmaps = {}
+
+if not OPENROUTER_API_KEY:
+    print("⚠️ WARNING: OPENROUTER_API_KEY missing — add it to .env (used for chat).")
 
 # ------------------ ROUTES ------------------
 @app.route("/", methods=["GET"])
@@ -51,10 +82,10 @@ def home():
 @app.route("/api/predict", methods=["POST"])
 def predict():
     try:
-        data = request.json
+        data = request.get_json(force=True, silent=True) or {}
         name = data.get("name", "User")
 
-        # ✅ Extract and normalize user inputs
+        # Extract and normalize inputs
         tech_skills_raw = data.get("technicalSkills", [])
         soft_skills_raw = data.get("softSkills", [])
         industries_raw = data.get("industries", [])
@@ -79,9 +110,9 @@ def predict():
         user_experience = str(data.get("experience", "")).lower()
         user_education = str(data.get("education", "")).lower()
 
-        # ✅ Use ML model for prediction
         user_text = f"{user_skills} {user_softskills} {user_industry} {user_values} {user_experience} {user_education}"
-        # 🔥 DEBUG: Print exactly what ML model sees
+
+        # Debug prints for logs
         print("🧪 DEBUG — ML INPUT TEXT:", user_text)
         print("🧪 Skills:", user_skills)
         print("🧪 Soft Skills:", user_softskills)
@@ -90,55 +121,59 @@ def predict():
         print("🧪 Experience:", user_experience)
         print("🧪 Education:", user_education)
 
-        try:
-            y_pred = career_model.predict([user_text])
-            main_career = label_encoder.inverse_transform(y_pred)[0]
-        except Exception as e:
-            print("⚠️ ML Prediction failed, fallback:", e)
+        # Use model if available; otherwise fallback to heuristic
+        if career_model is not None and label_encoder is not None:
+            try:
+                y_pred = career_model.predict([user_text])
+                main_career = label_encoder.inverse_transform(y_pred)[0]
+            except Exception as e:
+                print("⚠️ ML Prediction failed, fallback to default:", e)
+                main_career = "AI Engineer"
+        else:
+            print("⚠️ career_model or label_encoder not loaded — using fallback career.")
             main_career = "AI Engineer"
 
-        # ------------------------------------------------------------------
-        # 🔥 FIXED: REPLACED FUZZY MATCHING WITH ML TOP-3 CAREER PREDICTIONS
-        # ------------------------------------------------------------------
-
+        # Compute top-3 recommendations if predict_proba available
+        recommendations = [main_career]
         try:
-            probabilities = career_model.predict_proba([user_text])[0]
-            top_indices = np.argsort(probabilities)[::-1][:3]
-            recommendations = label_encoder.inverse_transform(top_indices).tolist()
-        except:
-            recommendations = [main_career]
+            if career_model is not None and hasattr(career_model, "predict_proba") and label_encoder is not None:
+                probabilities = career_model.predict_proba([user_text])[0]
+                top_indices = np.argsort(probabilities)[::-1][:3]
+                recommendations = label_encoder.inverse_transform(top_indices).tolist()
+        except Exception as e:
+            print("⚠️ Could not compute probabilities:", e)
+            # keep recommendations as main_career or fallback
 
-        # --- Smart Mentor Matching (using fuzzy logic) ---
-        titles = mentors_df["job_title"].astype(str).str.lower().tolist()
-        mentor_matches = process.extract(main_career.lower(), titles, scorer=fuzz.token_sort_ratio, limit=3)
+        # Mentor matching using fuzzy logic (if mentors_df present)
+        titles = mentors_df["job_title"].astype(str).str.lower().tolist() if not mentors_df.empty else []
+        mentor_matches = process.extract(main_career.lower(), titles, scorer=fuzz.token_sort_ratio, limit=3) if titles else []
         print("🧠 Mentor match suggestions:", mentor_matches)
 
         matched_titles = [m[0] for m in mentor_matches if m[1] > 60]
-        matched = mentors_df[mentors_df["job_title"].str.lower().isin(matched_titles)]
+        matched = mentors_df[mentors_df["job_title"].str.lower().isin(matched_titles)] if not mentors_df.empty else pd.DataFrame()
 
-        # Fallback keyword search if needed
-        if matched.empty:
+        # Fallback keyword search
+        if (matched.empty if isinstance(matched, pd.DataFrame) else True) and not mentors_df.empty:
             for keyword in main_career.split():
-                temp = mentors_df[
-                    mentors_df["job_title"].str.lower().str.contains(keyword, na=False)
-                ]
+                temp = mentors_df[mentors_df["job_title"].str.lower().str.contains(keyword, na=False)]
                 if not temp.empty:
                     matched = temp
                     break
 
         mentors = []
-        for _, m in matched.iterrows():
-            mentors.append({
-                "name": m.get("name", "Unknown"),
-                "specialization": m.get("specialization", "-"),
-                "experience": m.get("experience", "-"),
-                "contact": m.get("contact", "-")
-            })
+        if isinstance(matched, pd.DataFrame) and not matched.empty:
+            for _, m in matched.iterrows():
+                mentors.append({
+                    "name": m.get("name", "Unknown"),
+                    "specialization": m.get("specialization", "-"),
+                    "experience": m.get("experience", "-"),
+                    "contact": m.get("contact", "-")
+                })
 
         if not mentors:
             mentors = [{"name": "No mentor available", "specialization": "-", "experience": "-", "contact": "-"}]
 
-        # --- Find roadmap ---
+        # Roadmap lookup
         roadmap = roadmaps.get(main_career.lower().strip())
         if not roadmap:
             roadmap = [
@@ -161,7 +196,8 @@ def predict():
         })
 
     except Exception as e:
-        print("❌ Backend error:", e)
+        print("❌ Backend error (predict):", e)
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 # ------------------ ROADMAP FETCH ------------------
@@ -174,6 +210,8 @@ def get_roadmap(career):
         else:
             return jsonify({"roadmap": []}), 404
     except Exception as e:
+        print("❌ get_roadmap error:", e)
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 # ------------------ SMART MENTOR FETCH ------------------
@@ -183,31 +221,29 @@ def get_mentors(career):
         career = career.lower().strip()
         print(f"🔍 Smart mentor search for: {career}")
 
-        titles = mentors_df["job_title"].astype(str).str.lower().tolist()
-        matches = process.extract(career, titles, scorer=fuzz.token_sort_ratio, limit=3)
+        titles = mentors_df["job_title"].astype(str).str.lower().tolist() if not mentors_df.empty else []
+        matches = process.extract(career, titles, scorer=fuzz.token_sort_ratio, limit=3) if titles else []
         print("🧠 Mentor match suggestions:", matches)
 
         matched_titles = [m[0] for m in matches if m[1] > 60]
-        matched = mentors_df[mentors_df["job_title"].str.lower().isin(matched_titles)]
+        matched = mentors_df[mentors_df["job_title"].str.lower().isin(matched_titles)] if not mentors_df.empty else pd.DataFrame()
 
-        # fallback
-        if matched.empty:
+        if matched.empty if isinstance(matched, pd.DataFrame) else True:
             for keyword in career.split():
-                temp = mentors_df[
-                    mentors_df["job_title"].str.lower().str.contains(keyword, na=False)
-                ]
+                temp = mentors_df[mentors_df["job_title"].str.lower().str.contains(keyword, na=False)]
                 if not temp.empty:
                     matched = temp
                     break
 
         mentors = []
-        for _, m in matched.iterrows():
-            mentors.append({
-                "name": m.get("name", "Unknown"),
-                "specialization": m.get("specialization", "-"),
-                "experience": m.get("experience", "-"),
-                "contact": m.get("contact", "-")
-            })
+        if isinstance(matched, pd.DataFrame) and not matched.empty:
+            for _, m in matched.iterrows():
+                mentors.append({
+                    "name": m.get("name", "Unknown"),
+                    "specialization": m.get("specialization", "-"),
+                    "experience": m.get("experience", "-"),
+                    "contact": m.get("contact", "-")
+                })
 
         if not mentors:
             mentors = [{"name": "No mentor available", "specialization": "-", "experience": "-", "contact": "-"}]
@@ -217,6 +253,7 @@ def get_mentors(career):
 
     except Exception as e:
         print("❌ Smart mentor lookup error:", e)
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 # ------------------ JOOBLE JOB SEARCH ------------------
@@ -230,7 +267,7 @@ def get_jobs():
     payload = {"keywords": career, "location": "India"}
 
     try:
-        res = requests.post(url, json=payload)
+        res = requests.post(url, json=payload, timeout=20)
         jobs_data = res.json().get("jobs", [])[:5]
         jobs = [
             {
@@ -245,13 +282,14 @@ def get_jobs():
         return jsonify({"jobs": jobs})
     except Exception as e:
         print("❌ Jooble API error:", e)
+        traceback.print_exc()
         return jsonify({"error": str(e), "jobs": []}), 500
 
 # ------------------ CONTEXT-AWARE AI CHAT ------------------
 @app.route("/api/chat", methods=["POST"])
 def ai_chat():
     try:
-        data = request.json
+        data = request.get_json(force=True, silent=True) or {}
         user_message = data.get("message", "").strip()
         if not user_message:
             return jsonify({"error": "No message provided"}), 400
@@ -261,7 +299,6 @@ def ai_chat():
         mentors = data.get("mentors", [])
         jobs = data.get("jobs", [])
 
-        # Build context
         context_parts = []
         if career:
             context_parts.append(f"The user's predicted career is: {career}.")
@@ -277,7 +314,7 @@ def ai_chat():
         context_text = " ".join(context_parts) if context_parts else "No additional context."
 
         headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}" if OPENROUTER_API_KEY else "",
             "Content-Type": "application/json"
         }
 
@@ -303,9 +340,13 @@ def ai_chat():
 
     except Exception as e:
         print("❌ Chat API Error:", e)
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
 
 # ------------------ MAIN ------------------
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Use PORT env var if provided (Render uses gunicorn; this only applies when running directly)
+    port = int(os.getenv("PORT", 5000))
+    # Host bind 0.0.0.0 so Render/containers and external connections can reach it locally if needed
+    app.run(host="0.0.0.0", port=port, debug=os.getenv("FLASK_DEBUG", "False").lower() in ("1", "true", "yes"))
+
