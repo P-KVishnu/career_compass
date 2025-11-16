@@ -288,21 +288,18 @@ def get_jobs():
 # ------------------ CONTEXT-AWARE AI CHAT ------------------
 @app.route("/api/chat", methods=["POST"])
 def ai_chat():
-    print("🚀 USING UPDATED BACKEND VERSION")   # ← properly indented
-
+    print("🚀 USING UPDATED BACKEND VERSION")
     try:
         data = request.json
         user_message = data.get("message", "").strip()
         if not user_message:
             return jsonify({"error": "No message provided"}), 400
 
-
         career = data.get("career", "")
         recommendations = data.get("recommendations", [])
         mentors = data.get("mentors", [])
         jobs = data.get("jobs", [])
 
-        # Build context
         context_parts = []
         if career:
             context_parts.append(f"The user's predicted career is: {career}.")
@@ -315,11 +312,11 @@ def ai_chat():
             job_titles = [j.get("title", "N/A") for j in jobs]
             context_parts.append("Recent job openings: " + ", ".join(job_titles) + ".")
 
-        context_text = " ".join(context_parts) if context_parts else "No additional context."
+        context_text = " ".join(context_parts) if context_parts else "No context."
 
-        # 🔥 GROQ API
         GROQ_API_KEY = os.getenv("GROQ_API_KEY")
         if not GROQ_API_KEY:
+            print("❌ Missing GROQ_API_KEY")
             return jsonify({"error": "Groq API key missing"}), 500
 
         url = "https://api.groq.com/openai/v1/chat/completions"
@@ -329,24 +326,25 @@ def ai_chat():
         }
 
         payload = {
-            "model": "meta-llama/Llama-3.1-8B-Instruct",
+            "model": "llama-3.1-8b-instant",
             "messages": [
-                {"role": "system", "content": "You are an AI career assistant offering helpful, concise advice."},
-                {"role": "user", "content": f"{context_text}\n\nUser's question: {user_message}"}
+                {"role": "system", "content": "You are an AI career assistant helping users."},
+                {"role": "user", "content": f"{context_text}\n\nUser question: {user_message}"}
             ],
             "temperature": 0.6,
             "max_tokens": 300
         }
 
         response = requests.post(url, json=payload, headers=headers)
-        data = response.json()
+        print("Groq raw:", response.text)
 
         if response.status_code != 200:
-            print("❌ Groq Error:", data)
-            return jsonify({"error": "AI provider error", "details": data}), 500
+            print("❌ Groq Error:", response.json())
+            return jsonify({"error": "AI provider failed", "details": response.json()}), 500
 
-        ai_reply = data["choices"][0]["message"]["content"].strip()
-        return jsonify({"reply": ai_reply})
+        data = response.json()
+        reply = data["choices"][0]["message"]["content"].strip()
+        return jsonify({"reply": reply})
 
     except Exception as e:
         print("❌ Chat Error:", e)
