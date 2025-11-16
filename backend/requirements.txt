@@ -4,4 +4,6 @@ pandas
 scikit-learn
 joblib
 python-dotenv
-rapidfuzz  
+rapidfuzz
+gunicorn
+  
