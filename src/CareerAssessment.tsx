@@ -5,10 +5,8 @@ interface CareerAssessmentProps {
   onComplete: (resultData?: any) => void;
 }
 
-// ---------- FIXED: backend URL placed at top (outside component)
-const backendUrl =
-  import.meta.env.VITE_API_URL ||
-  "https://career-compass-bmzq.onrender.com";
+// Normalize backend URL (remove trailing slashes)
+const backendUrl = (import.meta.env.VITE_API_URL || "https://career-compass-bmzq.onrender.com").replace(/\/+$/, "");
 
 export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
   const [currentStep, setCurrentStep] = useState(0);
@@ -106,35 +104,24 @@ export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
   ];
 
   // -----------------------------
-  // ✔ CORRECTED handleSubmit()
-  // - Uses the component's formData
-  // - Sends payload exactly as backend expects
-  // - Uses one fetch call (res) and proper headers
-  // - Logs useful info for debugging in browser console
+  // Corrected handleSubmit()
   // -----------------------------
   const handleSubmit = async () => {
     try {
-      // ✅ Validate before sending
+      // basic validation
       if (!formData.personalityType || !formData.experienceLevel || !formData.educationLevel) {
         toast.error("Please complete all sections before submitting!");
         return;
       }
 
-      // Build payload exactly as backend expects
       const payload = {
         name: formData.currentRole?.trim() || "User",
-
-        // backend expects arrays of objects for skills (you already have that)
         technicalSkills: formData.technicalSkills,
         softSkills: formData.softSkills,
-
         industries: formData.preferredIndustries,
         values: formData.careerValues,
-
         experience: formData.experienceLevel,
         education: formData.educationLevel,
-
-        // Optional extras (backend ignores them if not used)
         personality: formData.personalityType,
         workStyle: formData.workStylePreferences,
       };
@@ -153,8 +140,8 @@ export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
       console.log("⬅️ Backend status:", res.status);
 
       if (!res.ok) {
-        const errorText = await res.text();
-        console.error("Backend responded with error:", errorText);
+        const errText = await res.text().catch(() => "");
+        console.error("Backend responded with error:", res.status, errText);
         toast.error(`Backend error: ${res.status}`);
         return;
       }
@@ -175,6 +162,9 @@ export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
     }
   };
 
+  // -----------------------------
+  // UI (unchanged logic / content)
+  // -----------------------------
   const steps = [
     {
       title: "Personality & Values",
@@ -343,7 +333,7 @@ export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
                           newSkills.push({
                             skill,
                             level,
-                            yearsExperience: existingSkill?.yearsExperience || 0
+                            yearsExperience: existingSkill?.yearsExperience || 0,
                           });
 
                           setFormData({ ...formData, technicalSkills: newSkills });
@@ -351,7 +341,7 @@ export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
                         className="w-20"
                       />
                       <span className="w-8 text-sm">{existingSkill?.level || 1}</span>
-                                          </div>
+                    </div>
                   </div>
                 );
               })}
