@@ -288,11 +288,14 @@ def get_jobs():
 # ------------------ CONTEXT-AWARE AI CHAT ------------------
 @app.route("/api/chat", methods=["POST"])
 def ai_chat():
+    print("🚀 USING UPDATED BACKEND VERSION")   # ← properly indented
+
     try:
         data = request.json
         user_message = data.get("message", "").strip()
         if not user_message:
             return jsonify({"error": "No message provided"}), 400
+
 
         career = data.get("career", "")
         recommendations = data.get("recommendations", [])
