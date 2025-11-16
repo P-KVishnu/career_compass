@@ -289,7 +289,7 @@ def get_jobs():
 @app.route("/api/chat", methods=["POST"])
 def ai_chat():
     try:
-        data = request.get_json(force=True, silent=True) or {}
+        data = request.json
         user_message = data.get("message", "").strip()
         if not user_message:
             return jsonify({"error": "No message provided"}), 400
@@ -299,6 +299,7 @@ def ai_chat():
         mentors = data.get("mentors", [])
         jobs = data.get("jobs", [])
 
+        # Build context
         context_parts = []
         if career:
             context_parts.append(f"The user's predicted career is: {career}.")
@@ -313,35 +314,41 @@ def ai_chat():
 
         context_text = " ".join(context_parts) if context_parts else "No additional context."
 
+        # 🔥 GROQ API
+        GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+        if not GROQ_API_KEY:
+            return jsonify({"error": "Groq API key missing"}), 500
+
+        url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}" if OPENROUTER_API_KEY else "",
+            "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
 
         payload = {
-            "model": "mistralai/mistral-7b-instruct",
+            "model": "llama3-8b-8192",
             "messages": [
-                {"role": "system", "content": "You are an AI career assistant offering concise and motivational advice."},
+                {"role": "system", "content": "You are an AI career assistant offering helpful, concise advice."},
                 {"role": "user", "content": f"{context_text}\n\nUser's question: {user_message}"}
             ],
-            "temperature": 0.7,
-            "max_tokens": 400
+            "temperature": 0.6,
+            "max_tokens": 300
         }
 
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=40)
+        response = requests.post(url, json=payload, headers=headers)
         data = response.json()
 
         if response.status_code != 200:
-            print("❌ OpenRouter Error:", data)
-            return jsonify({"error": data}), 500
+            print("❌ Groq Error:", data)
+            return jsonify({"error": "AI provider error", "details": data}), 500
 
         ai_reply = data["choices"][0]["message"]["content"].strip()
         return jsonify({"reply": ai_reply})
 
     except Exception as e:
-        print("❌ Chat API Error:", e)
-        traceback.print_exc()
+        print("❌ Chat Error:", e)
         return jsonify({"error": str(e)}), 500
+
 
 # ------------------ MAIN ------------------
 if __name__ == "__main__":
