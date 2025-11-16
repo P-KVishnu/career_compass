@@ -326,7 +326,7 @@ def ai_chat():
         }
 
         payload = {
-    "model": "llama3-8b",
+            "model": "meta-llama/Llama-3.1-8B-Instruct",
             "messages": [
                 {"role": "system", "content": "You are an AI career assistant offering helpful, concise advice."},
                 {"role": "user", "content": f"{context_text}\n\nUser's question: {user_message}"}
