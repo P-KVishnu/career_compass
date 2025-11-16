@@ -130,8 +130,10 @@ export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
       console.log("🟢 Sending payload to backend:", payload);
 
       // ✅ Local backend fallback
-      const backendUrl = import.meta.env.VITE_API_URL || "https://career-compass-bmzq.onrender.com
-";
+const backendUrl =
+  import.meta.env.VITE_API_URL ||
+  "https://career-compass-bmzq.onrender.com";
+
 
       const res = await fetch(`${backendUrl}/api/predict`, {
         method: "POST",
