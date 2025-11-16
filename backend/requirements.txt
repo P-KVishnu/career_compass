@@ -6,4 +6,5 @@ joblib
 python-dotenv
 rapidfuzz
 gunicorn
+requests
   
