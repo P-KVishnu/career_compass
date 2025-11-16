@@ -10,6 +10,9 @@ import pickle
 import numpy as np
 import traceback
 
+print("🔥 BACKEND VERSION: v5")
+
+
 # ------------------ ENV (load early) ------------------
 load_dotenv()  # Load .env file (local dev)
 
