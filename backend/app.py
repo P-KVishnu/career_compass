@@ -27,7 +27,8 @@ if not OPENROUTER_API_KEY:
 
 # ------------------ FLASK APP SETUP ------------------
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
 
 # ------------------ DATA LOADING ------------------
 print("📂 Current working directory:", os.getcwd())
