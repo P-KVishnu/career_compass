@@ -6,7 +6,9 @@ interface CareerAssessmentProps {
 }
 
 // Normalize backend URL (remove trailing slashes)
-const backendUrl = (import.meta.env.VITE_API_URL || "https://career-compass-bmzq.onrender.com").replace(/\/+$/, "");
+const backendUrl =
+  import.meta.env.VITE_API_URL ||
+  "https://career-compass-bmzq.onrender.com";
 
 export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
   const [currentStep, setCurrentStep] = useState(0);
