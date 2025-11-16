@@ -135,11 +135,23 @@ const backendUrl =
   "https://career-compass-bmzq.onrender.com";
 
 
-      const res = await fetch(`${backendUrl}/api/predict`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+     const response = await fetch(`${backendUrl}/api/predict`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    name,
+    technicalSkills,
+    softSkills,
+    industries,
+    values,
+    experience,
+    education,
+  }),
+});
+
+
 
       // ✅ Handle response
       if (!res.ok) {
