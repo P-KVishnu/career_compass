@@ -326,7 +326,7 @@ def ai_chat():
         }
 
         payload = {
-            "model": "llama3-8b-8192",
+            "model": "llama3.1-8b-instant",
             "messages": [
                 {"role": "system", "content": "You are an AI career assistant offering helpful, concise advice."},
                 {"role": "user", "content": f"{context_text}\n\nUser's question: {user_message}"}
