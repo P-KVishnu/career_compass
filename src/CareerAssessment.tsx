@@ -5,11 +5,6 @@ interface CareerAssessmentProps {
   onComplete: (resultData?: any) => void;
 }
 
-// Normalize backend URL (remove trailing slashes)
-const backendUrl =
-  import.meta.env.VITE_API_URL ||
-  "https://career-compass-bmzq.onrender.com";
-
 export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState({
@@ -105,45 +100,49 @@ export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
     "Conflict Resolution",
   ];
 
-  // -----------------------------
-  // Corrected handleSubmit()
-  // -----------------------------
   const handleSubmit = async () => {
     try {
-      // basic validation
+      // ✅ Validate before sending
       if (!formData.personalityType || !formData.experienceLevel || !formData.educationLevel) {
         toast.error("Please complete all sections before submitting!");
         return;
       }
-
       const payload = {
-        name: formData.currentRole?.trim() || "User",
-        technicalSkills: formData.technicalSkills,
-        softSkills: formData.softSkills,
-        industries: formData.preferredIndustries,
-        values: formData.careerValues,
-        experience: formData.experienceLevel,
-        education: formData.educationLevel,
-        personality: formData.personalityType,
-        workStyle: formData.workStylePreferences,
-      };
+    name: formData.currentRole?.trim() || "User",
+    currentRole: formData.currentRole?.trim() || "",
+
+  // 🔥 EXACT fields your backend expects:
+  technicalSkills: formData.technicalSkills,  
+  softSkills: formData.softSkills,
+
+  industries: formData.preferredIndustries,  
+  values: formData.careerValues,
+
+  experience: formData.experienceLevel,
+  education: formData.educationLevel,
+
+  // Optional additional data (backend ignores them but safe to send)
+  personality: formData.personalityType,
+  workStyle: formData.workStylePreferences,
+};
+
+
 
       console.log("🟢 Sending payload to backend:", payload);
-      console.log("🌐 Calling backend:", `${backendUrl}/api/predict`);
+
+      // ✅ Local backend fallback
+      const backendUrl = import.meta.env.VITE_API_URL || "http://127.0.0.1:5000";
 
       const res = await fetch(`${backendUrl}/api/predict`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      console.log("⬅️ Backend status:", res.status);
-
+      // ✅ Handle response
       if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        console.error("Backend responded with error:", res.status, errText);
+        const errorText = await res.text();
+        console.error("Backend responded with error:", errorText);
         toast.error(`Backend error: ${res.status}`);
         return;
       }
@@ -157,16 +156,16 @@ export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
       }
 
       toast.success("Career recommendations received!");
+
+      // ✅ Send full response to next page
       onComplete(data);
+
     } catch (error) {
       console.error("❌ Failed to connect:", error);
       toast.error("Failed to connect to backend. Please check Flask server.");
     }
   };
 
-  // -----------------------------
-  // UI (unchanged logic / content)
-  // -----------------------------
   const steps = [
     {
       title: "Personality & Values",
@@ -333,17 +332,17 @@ export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
                           const level = parseInt(e.target.value);
                           const newSkills = formData.technicalSkills.filter((s) => s.skill !== skill);
                           newSkills.push({
-                            skill,
-                            level,
-                            yearsExperience: existingSkill?.yearsExperience || 0,
-                          });
+  skill,
+  level,
+  yearsExperience: existingSkill?.yearsExperience || 0
+});
 
                           setFormData({ ...formData, technicalSkills: newSkills });
                         }}
                         className="w-20"
                       />
                       <span className="w-8 text-sm">{existingSkill?.level || 1}</span>
-                    </div>
+                                          </div>
                   </div>
                 );
               })}
@@ -566,4 +565,3 @@ export function CareerAssessment({ onComplete }: CareerAssessmentProps) {
     </div>
   );
 }
-
