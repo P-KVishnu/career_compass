@@ -8,3 +8,4 @@ python-dotenv
 gunicorn
 requests
 rapidfuzz
+rapidfuzz==3.6.1
