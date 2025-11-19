@@ -22,72 +22,82 @@ JOOBLE_API_KEY = os.getenv("JOOBLE_API_KEY", "7dfddc19-8370-4ae7-8794-fb81348198
 app = Flask(__name__)
 CORS(app)
 
-# ------------------ LOAD MODELS & DATA (safe) ------------------
+# ------------------ SAFE DEFAULTS ------------------
 career_model = None
 label_encoder = None
+vectorizer = None
 career_data = pd.DataFrame()
 mentors_df = pd.DataFrame()
 roadmaps = {}
 
-# load model and label encoder safely
+# ------------------ LOAD MODELS SAFELY ------------------
 try:
-    # ------------------ LOAD MODELS & DATA (safe) ------------------
-career_model = None
-label_encoder = None
-...
-except Exception as e:
-    print("❌ Error loading model/encoder:", e)
-    traceback.print_exc()
+    model_path = os.path.join(BASE_DIR, "career_model.pkl")
+    le_path = os.path.join(BASE_DIR, "encoders.pkl")
+    vec_path = os.path.join(BASE_DIR, "vectorizer.pkl")
 
+    # Career Model
+    if os.path.exists(model_path):
+        with open(model_path, "rb") as f:
+            career_model = pickle.load(f)
         print("✅ Loaded career_model.pkl")
     else:
-        print("⚠️ career_model.pkl not found at", model_path)
+        print("⚠️ career_model.pkl not found")
 
+    # Label Encoder
     if os.path.exists(le_path):
         with open(le_path, "rb") as f:
             label_encoder = pickle.load(f)
-        print("✅ Loaded label_encoder.pkl")
+        print("✅ Loaded encoders.pkl")
     else:
-        print("⚠️ label_encoder.pkl not found at", le_path)
+        print("⚠️ encoders.pkl not found")
+
+    # Vectorizer
+    if os.path.exists(vec_path):
+        with open(vec_path, "rb") as f:
+            vectorizer = pickle.load(f)
+        print("✅ Loaded vectorizer.pkl")
+    else:
+        print("⚠️ vectorizer.pkl not found")
+
 except Exception as e:
-    print("❌ Error loading model/encoder:", e)
+    print("❌ Error loading model files:", e)
     traceback.print_exc()
 
-# load career_data
+# ------------------ LOAD career_data.csv ------------------
 try:
-    career_csv = os.path.join(BASE_DIR, "career_data.csv")
-    if os.path.exists(career_csv):
-        career_data = pd.read_csv(career_csv)
-        print("✅ Loaded career_data.csv with columns:", list(career_data.columns))
-        print("✅ career_data rows:", len(career_data))
+    csv_path = os.path.join(BASE_DIR, "career_data.csv")
+    if os.path.exists(csv_path):
+        career_data = pd.read_csv(csv_path)
+        print("✅ Loaded career_data.csv:", len(career_data), "rows")
     else:
-        print("⚠️ career_data.csv not found at", career_csv)
+        print("⚠️ career_data.csv not found")
 except Exception as e:
     print("❌ Error loading career_data.csv:", e)
     traceback.print_exc()
 
-# load mentors.csv
+# ------------------ LOAD mentors.csv ------------------
 try:
     mentors_csv = os.path.join(BASE_DIR, "mentors.csv")
     if os.path.exists(mentors_csv):
         mentors_df = pd.read_csv(mentors_csv)
-        print("✅ Loaded mentors.csv with rows:", len(mentors_df))
+        print("✅ Loaded mentors.csv:", len(mentors_df), "rows")
     else:
-        print("⚠️ mentors.csv not found at", mentors_csv)
+        print("⚠️ mentors.csv not found")
 except Exception as e:
     print("❌ Error loading mentors.csv:", e)
     traceback.print_exc()
 
-# load roadmaps.json
+# ------------------ LOAD roadmaps.json ------------------
 try:
     roadmaps_path = os.path.join(BASE_DIR, "roadmaps.json")
     if os.path.exists(roadmaps_path):
         with open(roadmaps_path, "r", encoding="utf-8") as f:
-            raw_roadmaps = json.load(f)
-            roadmaps = {k.strip().lower(): v for k, v in raw_roadmaps.items()}
-        print("✅ Loaded roadmaps.json entries:", len(roadmaps))
+            raw = json.load(f)
+            roadmaps = {k.lower().strip(): v for k, v in raw.items()}
+        print("✅ Loaded roadmaps.json:", len(roadmaps))
     else:
-        print("⚠️ roadmaps.json not found at", roadmaps_path)
+        print("⚠️ roadmaps.json not found")
 except Exception as e:
     print("❌ Error loading roadmaps.json:", e)
     traceback.print_exc()
@@ -98,6 +108,7 @@ def home():
     return jsonify({"message": "Career Compass API is running!"})
 
 
+# ------------------ PREDICT ROUTE ------------------
 @app.route("/api/predict", methods=["POST"])
 def predict():
     try:
@@ -107,161 +118,120 @@ def predict():
         data = request.get_json(force=True)
         name = data.get("name", "User")
 
-        # Extract inputs with safe defaults
+        # Extract fields
         tech_skills_raw = data.get("technicalSkills", [])
         soft_skills_raw = data.get("softSkills", [])
         industries_raw = data.get("industries", [])
         values_raw = data.get("values", [])
-        current_role_raw = data.get("currentRole", "") or data.get("current_role", "") or ""
+        current_role_raw = data.get("currentRole", "") or data.get("current_role", "")
         user_experience = str(data.get("experience", "")).lower()
         user_education = str(data.get("education", "")).lower()
 
-        # Normalize lists -> comma separated strings of skill names
+        # Normalize skills
         try:
             user_skills = ",".join(
-                [str(s.get("skill", "")).strip() for s in tech_skills_raw if isinstance(s, dict) and s.get("skill")]
+                [s.get("skill", "").strip() for s in tech_skills_raw if isinstance(s, dict)]
             ).lower()
-        except Exception:
-            # if front-end sends list of strings
-            user_skills = ",".join([str(s).strip() for s in tech_skills_raw if s]).lower()
+        except:
+            user_skills = ",".join([str(s).strip() for s in tech_skills_raw]).lower()
 
         try:
             user_softskills = ",".join(
-                [str(s.get("skill", "")).strip() for s in soft_skills_raw if isinstance(s, dict) and s.get("skill")]
+                [s.get("skill", "").strip() for s in soft_skills_raw if isinstance(s, dict)]
             ).lower()
-        except Exception:
-            user_softskills = ",".join([str(s).strip() for s in soft_skills_raw if s]).lower()
+        except:
+            user_softskills = ",".join([str(s).strip() for s in soft_skills_raw]).lower()
 
-        if isinstance(industries_raw, list):
-            user_industry = ",".join([str(i).strip() for i in industries_raw if i]).lower()
-        else:
-            user_industry = str(industries_raw).strip().lower()
-
-        if isinstance(values_raw, list):
-            user_values = ",".join([str(v).strip() for v in values_raw if v]).lower()
-        else:
-            user_values = str(values_raw).strip().lower()
-
+        user_industry = ",".join([str(i).strip() for i in industries_raw]) if isinstance(industries_raw, list) else str(industries_raw)
+        user_values = ",".join([str(v).strip() for v in values_raw]) if isinstance(values_raw, list) else str(values_raw)
         current_role = str(current_role_raw).strip().lower()
 
-        # Build boosted text - ensure current role & technical skills have strong weight
+        # Build ML input text
         boosted_text = (
-            ((current_role + " ") if current_role else "") * 12 +
-            ((user_skills + " ") if user_skills else "") * 10 +
-            ((user_softskills + " ") if user_softskills else "") * 2 +
-            ((user_industry + " ") if user_industry else "") +
-            ((user_values + " ") if user_values else "") +
-            (user_experience + " ") +
-            (user_education or "")
+            ((current_role + " ") * 12) +
+            ((user_skills + " ") * 10) +
+            ((user_softskills + " ") * 2) +
+            user_industry + " " +
+            user_values + " " +
+            user_experience + " " +
+            user_education
         ).strip()
 
-        # DEBUG prints (useful while testing)
-        print("🧪 DEBUG — BOOSTED ML INPUT TEXT:", boosted_text)
-        print("🧪 Skills:", user_skills)
-        print("🧪 Soft Skills:", user_softskills)
-        print("🧪 Current Role:", current_role)
-        print("🧪 Industry:", user_industry)
-        print("🧪 Values:", user_values)
-        print("🧪 Experience:", user_experience)
-        print("🧪 Education:", user_education)
+        print("🧪 DEBUG — BOOSTED TEXT:", boosted_text)
 
-        # Predict using the model
+        # Predict
         try:
             y_pred = career_model.predict([boosted_text])
             main_career = label_encoder.inverse_transform(y_pred)[0]
-        except Exception as e:
-            print("⚠️ ML prediction error:", e)
-            traceback.print_exc()
+        except:
             main_career = None
 
-        # Get top-3 recommendations using model probabilities if available
+        # Recommendations
         recommendations = []
         try:
             if hasattr(career_model, "predict_proba"):
                 probs = career_model.predict_proba([boosted_text])[0]
-                top_indices = np.argsort(probs)[::-1][:3]
-                recommendations = label_encoder.inverse_transform(top_indices).tolist()
-            else:
-                # fallback to exact label if no predict_proba
-                if main_career:
-                    recommendations = [main_career]
-        except Exception as e:
-            print("⚠️ recommendation (proba) error:", e)
-            traceback.print_exc()
+                top_idx = np.argsort(probs)[::-1][:3]
+                recommendations = label_encoder.inverse_transform(top_idx).tolist()
+            elif main_career:
+                recommendations = [main_career]
+        except:
             if main_career:
                 recommendations = [main_career]
 
-        # If model produced nothing, fall back to fuzzy lookup using combined text
+        # Fallback fuzzy search
         if not main_career:
-            # fallback: try fuzzy match on career_data job_title
-            titles = career_data["job_title"].astype(str).str.lower().unique().tolist() if not career_data.empty else []
-            fallback_matches = process.extract(user_skills or user_softskills or current_role, titles, scorer=fuzz.token_sort_ratio, limit=3)
-            recommendations = [m[0] for m in fallback_matches if m[1] > 60] or (recommendations or ["software engineer"])
-            main_career = recommendations[0]
+            if not career_data.empty:
+                titles = career_data["job_title"].astype(str).str.lower().tolist()
+                matches = process.extract(user_skills or current_role, titles, scorer=fuzz.token_sort_ratio, limit=3)
+                recommendations = [m[0] for m in matches if m[1] > 60] or ["software engineer"]
+                main_career = recommendations[0]
 
-        # Block obviously wrong low-skill job predictions
-        blocked_jobs = {
-            "delivery driver",
-            "retail sales associate",
-            "store assistant",
-            "store clerk",
-            "warehouse worker",
-            "cashier",
-            "call center agent"
-        }
-        if main_career and main_career.lower() in blocked_jobs:
-            print("⚠️ Blocked prediction:", main_career)
-            # try to pick next best from recommendations
-            next_career = None
+        # Block irrelevant low-skill predictions
+        blocked = {"delivery driver", "cashier", "store clerk", "warehouse worker"}
+        if main_career.lower() in blocked:
             for r in recommendations:
-                if r.lower() not in blocked_jobs:
-                    next_career = r
+                if r.lower() not in blocked:
+                    main_career = r
                     break
-            main_career = next_career or "software engineer"
-            # ensure recommendations reflect this
-            if main_career not in recommendations:
-                recommendations = [main_career] + [r for r in recommendations if r != main_career]
+            else:
+                main_career = "software engineer"
 
         # Mentor matching
         mentors = []
         try:
             if not mentors_df.empty:
                 titles = mentors_df["job_title"].astype(str).str.lower().tolist()
-                mentor_matches = process.extract(main_career.lower(), titles, scorer=fuzz.token_sort_ratio, limit=5)
-                matched_titles = [m[0] for m in mentor_matches if m[1] > 60]
-                matched = mentors_df[mentors_df["job_title"].str.lower().isin(matched_titles)]
-                if matched.empty:
-                    # fallback keyword search
-                    for keyword in (main_career or "").split():
-                        temp = mentors_df[mentors_df["job_title"].str.lower().str.contains(keyword, na=False)]
-                        if not temp.empty:
-                            matched = temp
+                matches = process.extract(main_career.lower(), titles, scorer=fuzz.token_sort_ratio, limit=5)
+                matched_titles = [m[0] for m in matches if m[1] > 60]
+                filtered = mentors_df[mentors_df["job_title"].str.lower().isin(matched_titles)]
+                if filtered.empty:
+                    for kw in main_career.split():
+                        tmp = mentors_df[mentors_df["job_title"].str.lower().str.contains(kw)]
+                        if not tmp.empty:
+                            filtered = tmp
                             break
-                for _, m in matched.iterrows():
+                for _, m in filtered.iterrows():
                     mentors.append({
                         "name": m.get("name", "Unknown"),
                         "specialization": m.get("specialization", "-"),
                         "experience": m.get("experience", "-"),
                         "contact": m.get("contact", "-")
                     })
-        except Exception as e:
-            print("⚠️ Mentor matching error:", e)
-            traceback.print_exc()
+        except:
+            pass
 
         if not mentors:
             mentors = [{"name": "No mentor available", "specialization": "-", "experience": "-", "contact": "-"}]
 
-        # Roadmap lookup
-        roadmap = roadmaps.get((main_career or "").lower().strip())
-        if not roadmap:
-            roadmap = [
-                "1️⃣ Learn the core foundations",
-                "2️⃣ Build and showcase projects",
-                "3️⃣ Network with industry professionals",
-                "4️⃣ Stay updated with emerging tools"
-            ]
+        # Roadmaps
+        roadmap = roadmaps.get(main_career.lower(), [
+            "1️⃣ Learn the foundations",
+            "2️⃣ Build projects",
+            "3️⃣ Network with experts",
+            "4️⃣ Stay updated"
+        ])
 
-        # Final response
         return jsonify({
             "user": name,
             "career": main_career,
@@ -271,98 +241,97 @@ def predict():
         })
 
     except Exception as e:
-        print("❌ Backend error in /api/predict:", e)
+        print("❌ Backend error:", e)
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
-# Roadmap fetch
+# ------------------ ROADMAP ROUTE ------------------
 @app.route("/get_roadmap/<career>", methods=["GET"])
 def get_roadmap(career):
     try:
-        roadmap = roadmaps.get(career.lower().strip())
-        if roadmap:
-            return jsonify({"roadmap": roadmap})
-        else:
-            return jsonify({"roadmap": []}), 404
+        if career.lower() in roadmaps:
+            return jsonify({"roadmap": roadmaps[career.lower()]})
+        return jsonify({"roadmap": []}), 404
     except Exception as e:
-        print("❌ get_roadmap error:", e)
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
-# Get mentors
+# ------------------ MENTORS ROUTE ------------------
 @app.route("/get_mentors/<career>", methods=["GET"])
 def get_mentors(career):
     try:
-        career_lower = career.lower().strip()
+        career_lower = career.lower()
         mentors = []
+
         if not mentors_df.empty:
             titles = mentors_df["job_title"].astype(str).str.lower().tolist()
             matches = process.extract(career_lower, titles, scorer=fuzz.token_sort_ratio, limit=5)
             matched_titles = [m[0] for m in matches if m[1] > 60]
-            matched = mentors_df[mentors_df["job_title"].str.lower().isin(matched_titles)]
-            if matched.empty:
-                for keyword in career_lower.split():
-                    temp = mentors_df[mentors_df["job_title"].str.lower().str.contains(keyword, na=False)]
-                    if not temp.empty:
-                        matched = temp
+            filtered = mentors_df[mentors_df["job_title"].str.lower().isin(matched_titles)]
+
+            if filtered.empty:
+                for kw in career_lower.split():
+                    tmp = mentors_df[mentors_df["job_title"].str.lower().str.contains(kw)]
+                    if not tmp.empty:
+                        filtered = tmp
                         break
-            for _, m in matched.iterrows():
+
+            for _, m in filtered.iterrows():
                 mentors.append({
                     "name": m.get("name", "Unknown"),
                     "specialization": m.get("specialization", "-"),
                     "experience": m.get("experience", "-"),
                     "contact": m.get("contact", "-")
                 })
+
         if not mentors:
             mentors = [{"name": "No mentor available", "specialization": "-", "experience": "-", "contact": "-"}]
+
         return jsonify({"mentors": mentors})
     except Exception as e:
-        print("❌ get_mentors error:", e)
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
-# Jobs (Jooble)
+# ------------------ JOBS (Jooble API) ------------------
 @app.route("/api/jobs", methods=["GET"])
 def get_jobs():
     try:
         career = request.args.get("career", "")
         if not career:
             return jsonify({"jobs": []})
+
         url = f"https://jooble.org/api/{JOOBLE_API_KEY}"
         payload = {"keywords": career, "location": "India"}
+
         try:
             res = requests.post(url, json=payload, timeout=15)
-            jobs_data = res.json().get("jobs", [])[:5]
-            jobs = [
-                {
-                    "title": j.get("title", "N/A"),
-                    "company": j.get("company", "N/A"),
-                    "location": j.get("location", "N/A"),
-                    "salary": j.get("salary", "N/A"),
-                    "link": j.get("link", "#"),
-                }
-                for j in jobs_data
-            ]
+            jobs_raw = res.json().get("jobs", [])[:5]
+
+            jobs = [{
+                "title": j.get("title", "N/A"),
+                "company": j.get("company", "N/A"),
+                "location": j.get("location", "N/A"),
+                "salary": j.get("salary", "N/A"),
+                "link": j.get("link", "#"),
+            } for j in jobs_raw]
+
             return jsonify({"jobs": jobs})
+
         except Exception as e:
             print("❌ Jooble API error:", e)
-            traceback.print_exc()
             return jsonify({"error": str(e), "jobs": []}), 500
+
     except Exception as e:
-        print("❌ get_jobs error:", e)
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
-# AI Chat (OpenRouter)
+# ------------------ AI CHAT ------------------
 @app.route("/api/chat", methods=["POST"])
 def ai_chat():
     try:
         if not OPENROUTER_API_KEY:
-            return jsonify({"error": "OpenRouter API key not configured on server."}), 500
+            return jsonify({"error": "OpenRouter API key not configured."}), 500
 
         data = request.get_json(force=True)
         user_message = data.get("message", "").strip()
@@ -374,11 +343,12 @@ def ai_chat():
         mentors = data.get("mentors", [])
         jobs = data.get("jobs", [])
 
+        # Build context
         context_parts = []
         if career:
-            context_parts.append(f"The user's predicted career is: {career}.")
+            context_parts.append(f"The user's predicted career is {career}.")
         if recommendations:
-            context_parts.append("Top recommended roles: " + ", ".join(recommendations) + ".")
+            context_parts.append("Top recommended careers: " + ", ".join(recommendations) + ".")
         if mentors:
             mentor_names = [m.get("name", "Unknown") for m in mentors]
             context_parts.append("Available mentors: " + ", ".join(mentor_names) + ".")
@@ -386,7 +356,7 @@ def ai_chat():
             job_titles = [j.get("title", "N/A") for j in jobs]
             context_parts.append("Recent job openings: " + ", ".join(job_titles) + ".")
 
-        context_text = " ".join(context_parts) if context_parts else "No additional context."
+        context_text = " ".join(context_parts) or "No additional context."
 
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -396,25 +366,24 @@ def ai_chat():
         payload = {
             "model": "mistralai/mistral-7b-instruct",
             "messages": [
-                {"role": "system", "content": "You are an AI career assistant offering concise and motivational advice."},
+                {"role": "system", "content": "You are an AI career assistant offering helpful advice."},
                 {"role": "user", "content": f"{context_text}\n\nUser's question: {user_message}"}
             ],
-            "temperature": 0.7,
-            "max_tokens": 400
+            "max_tokens": 400,
+            "temperature": 0.7
         }
 
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=40)
-        data = response.json()
-        if response.status_code != 200:
-            print("❌ OpenRouter Error:", data)
-            return jsonify({"error": data}), 500
+        response = requests.post("https://openrouter.ai/api/v1/chat/completions",
+                                 headers=headers, json=payload, timeout=40)
+        result = response.json()
 
-        ai_reply = data["choices"][0]["message"]["content"].strip()
+        if response.status_code != 200:
+            return jsonify({"error": result}), 500
+
+        ai_reply = result["choices"][0]["message"]["content"].strip()
         return jsonify({"reply": ai_reply})
 
     except Exception as e:
-        print("❌ Chat API Error:", e)
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
