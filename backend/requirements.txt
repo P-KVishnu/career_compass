@@ -2,9 +2,6 @@ flask
 flask-cors
 pandas
 scikit-learn
+numpy<2
 joblib
 python-dotenv
-rapidfuzz
-gunicorn
-requests
-  
